@@ -42,7 +42,7 @@ if [[ -n "$GIT_TOKEN" ]]; then
   SOURCE_URL="${PROTOCOL}://${GIT_TOKEN}@${GIT_HOST}${GIT_PATH}"
 fi
 
-mkdir -p "$WORK_DIR"
+rm -rf "$WORK_DIR"
 if [[ -n "$BRANCH" ]]; then
   git clone --branch "$BRANCH" --depth 1 "$SOURCE_URL" "$WORK_DIR"
 else
