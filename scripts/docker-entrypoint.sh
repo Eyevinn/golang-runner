@@ -13,6 +13,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Write commit metadata to a well-known file for platform visibility
+write_commit_info() {
+  local repo_dir="$1"
+  if [ -d "$repo_dir/.git" ]; then
+    git -C "$repo_dir" log -5 --format='{"sha":"%H","shortSha":"%h","message":"%s","author":"%an","date":"%aI"}' \
+      | jq -s '{
+          sha: .[0].sha,
+          shortSha: .[0].shortSha,
+          message: .[0].message,
+          author: .[0].author,
+          date: .[0].date,
+          recentCommits: .
+        }' > "$repo_dir/.commit-info.json" 2>/dev/null || true
+    echo "Commit info: $(jq -r '.shortSha + " - " + .message' "$repo_dir/.commit-info.json" 2>/dev/null || echo 'unavailable')"
+  fi
+}
+
 # ---- Clone phase ----
 SOURCE_URL="${SOURCE_URL:-$GITHUB_URL}"
 if [[ -z "$SOURCE_URL" ]]; then
@@ -48,6 +65,8 @@ if [[ -n "$BRANCH" ]]; then
 else
   git clone --depth 1 "$SOURCE_URL" "$WORK_DIR"
 fi
+
+write_commit_info "$WORK_DIR"
 
 # ---- Sub-path support ----
 BUILD_DIR="$WORK_DIR"
