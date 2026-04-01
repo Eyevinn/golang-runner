@@ -13,6 +13,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Write commit metadata to a well-known file for platform visibility
+write_commit_info() {
+  local repo_dir="$1"
+  if [ -d "$repo_dir/.git" ]; then
+    local sha shortSha msg author date recentCommits
+    sha=$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null) || return 0
+    shortSha=$(git -C "$repo_dir" rev-parse --short HEAD 2>/dev/null) || return 0
+    msg=$(git -C "$repo_dir" log -1 --format='%s' 2>/dev/null) || return 0
+    author=$(git -C "$repo_dir" log -1 --format='%an' 2>/dev/null) || return 0
+    date=$(git -C "$repo_dir" log -1 --format='%aI' 2>/dev/null) || return 0
+    recentCommits=$(git -C "$repo_dir" log -5 --format='%H' 2>/dev/null | while read -r c_sha; do
+      jq -n \
+        --arg sha "$c_sha" \
+        --arg shortSha "$(git -C "$repo_dir" rev-parse --short "$c_sha" 2>/dev/null)" \
+        --arg message "$(git -C "$repo_dir" log -1 --format='%s' "$c_sha" 2>/dev/null)" \
+        --arg author "$(git -C "$repo_dir" log -1 --format='%an' "$c_sha" 2>/dev/null)" \
+        --arg date "$(git -C "$repo_dir" log -1 --format='%aI' "$c_sha" 2>/dev/null)" \
+        '{sha:$sha,shortSha:$shortSha,message:$message,author:$author,date:$date}'
+    done | jq -s '.' 2>/dev/null) || recentCommits='[]'
+    jq -n \
+      --arg sha "$sha" \
+      --arg shortSha "$shortSha" \
+      --arg message "$msg" \
+      --arg author "$author" \
+      --arg date "$date" \
+      --argjson recentCommits "$recentCommits" \
+      '{sha:$sha,shortSha:$shortSha,message:$message,author:$author,date:$date,recentCommits:$recentCommits}' \
+      > "$repo_dir/.commit-info.json" 2>/dev/null || true
+    echo "Commit info: $(jq -r '.shortSha + " - " + .message' "$repo_dir/.commit-info.json" 2>/dev/null || echo 'unavailable')"
+  fi
+}
+
 # ---- Clone phase ----
 SOURCE_URL="${SOURCE_URL:-$GITHUB_URL}"
 if [[ -z "$SOURCE_URL" ]]; then
@@ -48,6 +80,8 @@ if [[ -n "$BRANCH" ]]; then
 else
   git clone --depth 1 "$SOURCE_URL" "$WORK_DIR"
 fi
+
+write_commit_info "$WORK_DIR"
 
 # ---- Sub-path support ----
 BUILD_DIR="$WORK_DIR"
