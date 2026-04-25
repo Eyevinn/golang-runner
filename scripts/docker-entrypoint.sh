@@ -60,31 +60,35 @@ if [[ "$SOURCE_URL" == *"#"* ]]; then
   SOURCE_URL="${SOURCE_URL%%#*}"
 fi
 
+# Parse URL components — needed for both token injection and credential scrubbing
+GIT_HOST="${SOURCE_URL#*://}"   # strip scheme
+GIT_HOST="${GIT_HOST%%/*}"      # keep only the hostname (may include user:pass@ if SOURCE_URL embeds credentials)
+# Variant with any embedded credentials stripped — used for log lines and the
+# persisted remote URL so that PATs never leak into pod logs or .git/config.
+# When SOURCE_URL has no credentials, this is identical to GIT_HOST.
+GIT_HOST_PUBLIC="${GIT_HOST##*@}"
+GIT_PATH="/${SOURCE_URL#*://*/}"
+[[ "/${SOURCE_URL}" == "${GIT_PATH}" ]] && GIT_PATH="/"
+PROTOCOL="${SOURCE_URL%%://*}"
+
 # Inject token if provided
 GIT_TOKEN="${GIT_TOKEN:-$GITHUB_TOKEN}"
 if [[ -n "$GIT_TOKEN" ]]; then
-  GIT_HOST="${SOURCE_URL#*://}"
-  GIT_HOST="${GIT_HOST%%/*}"
-  GIT_PATH="/${SOURCE_URL#*://*/}"
-  [[ "/${SOURCE_URL}" == "${GIT_PATH}" ]] && GIT_PATH="/"
-  if [[ "$SOURCE_URL" == *"#"* ]]; then
-    GIT_PATH="${GIT_PATH%%#*}"
-  fi
-  PROTOCOL="${SOURCE_URL%%://*}"
-  SOURCE_URL="${PROTOCOL}://${GIT_TOKEN}@${GIT_HOST}${GIT_PATH}"
+  SOURCE_URL="${PROTOCOL}://${GIT_TOKEN}@${GIT_HOST_PUBLIC}${GIT_PATH}"
 fi
 
 rm -rf "$WORK_DIR"
 if [[ -n "$BRANCH" ]]; then
+  echo "cloning https://***@${GIT_HOST_PUBLIC}${GIT_PATH} (branch: $BRANCH)"
   git clone --branch "$BRANCH" --depth 1 "$SOURCE_URL" "$WORK_DIR"
 else
+  echo "cloning https://***@${GIT_HOST_PUBLIC}${GIT_PATH}"
   git clone --depth 1 "$SOURCE_URL" "$WORK_DIR"
 fi
 
-# Scrub PAT from origin remote — token must not persist to .git/config
-if [[ -n "$GIT_TOKEN" ]]; then
-  git -C "$WORK_DIR" remote set-url origin "${PROTOCOL}://${GIT_HOST}${GIT_PATH}"
-fi
+# Scrub credentials from origin remote — PAT must not persist to .git/config.
+# Uses GIT_HOST_PUBLIC which has any embedded user:pass@ stripped.
+git -C "$WORK_DIR" remote set-url origin "${PROTOCOL}://${GIT_HOST_PUBLIC}${GIT_PATH}"
 
 write_commit_info "$WORK_DIR"
 
