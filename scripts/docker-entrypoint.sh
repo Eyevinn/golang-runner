@@ -81,6 +81,11 @@ else
   git clone --depth 1 "$SOURCE_URL" "$WORK_DIR"
 fi
 
+# Scrub PAT from origin remote — token must not persist to .git/config
+if [[ -n "$GIT_TOKEN" ]]; then
+  git -C "$WORK_DIR" remote set-url origin "${PROTOCOL}://${GIT_HOST}${GIT_PATH}"
+fi
+
 write_commit_info "$WORK_DIR"
 
 # ---- Sub-path support ----
