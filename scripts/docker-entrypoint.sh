@@ -99,9 +99,24 @@ if [[ -n "$SUB_PATH" ]]; then
 fi
 
 # ---- Config service phase ----
+if [[ -z "${OSC_ENV:-}" && -n "${OSC_MCP_URL:-}" ]]; then
+  _extracted=$(echo "$OSC_MCP_URL" | sed -n 's|.*\.svc\.\([a-z]*\)\.osaas\.io.*|\1|p')
+  OSC_ENV=${_extracted:-prod}
+fi
+
+if [[ -n "${OSC_ACCESS_TOKEN:-}" && -n "${OSC_ENV:-}" ]]; then
+  _refreshed=$(curl -sf -X POST \
+    "https://token.svc.${OSC_ENV:-prod}.osaas.io/runner-token/refresh" \
+    -H "Authorization: Bearer ${OSC_ACCESS_TOKEN}" \
+    -H "Content-Type: application/json" || true)
+  if [[ -n "${_refreshed}" ]]; then
+    OSC_ACCESS_TOKEN=$(echo "$_refreshed" | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "$OSC_ACCESS_TOKEN")
+  fi
+fi
+
 if [[ -n "$OSC_ACCESS_TOKEN" && -n "$CONFIG_SVC" ]]; then
   echo "[CONFIG] Loading environment variables from config service '$CONFIG_SVC'"
-  config_env_output=$(npx -y @osaas/cli@latest web config-to-env "$CONFIG_SVC" 2>&1)
+  config_env_output=$(npx -y @osaas/cli@latest web config-to-env ${OSC_ENV:+--env "$OSC_ENV"} "$CONFIG_SVC" 2>&1)
   config_exit=$?
   if [ $config_exit -eq 0 ]; then
     valid_exports=$(echo "$config_env_output" | grep "^export [A-Za-z_][A-Za-z0-9_]*=")
