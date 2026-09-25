@@ -71,19 +71,29 @@ GIT_PATH="/${SOURCE_URL#*://*/}"
 [[ "/${SOURCE_URL}" == "${GIT_PATH}" ]] && GIT_PATH="/"
 PROTOCOL="${SOURCE_URL%%://*}"
 
-# Inject token if provided
+# Build git auth args so credentials never appear in SOURCE_URL, process
+# listings, or shell history — passed via `-c http.<url>.extraheader` instead.
 GIT_TOKEN="${GIT_TOKEN:-$GITHUB_TOKEN}"
+GIT_AUTH_ARGS=()
 if [[ -n "$GIT_TOKEN" ]]; then
-  SOURCE_URL="${PROTOCOL}://${GIT_TOKEN}@${GIT_HOST_PUBLIC}${GIT_PATH}"
+  AUTH_B64=$(printf '%s' "x-access-token:${GIT_TOKEN}" | base64 | tr -d '\n')
+  GIT_AUTH_ARGS=(-c "http.https://${GIT_HOST_PUBLIC}/.extraheader=AUTHORIZATION: basic ${AUTH_B64}")
+elif [[ "$GIT_HOST" != "$GIT_HOST_PUBLIC" ]]; then
+  CREDS="${GIT_HOST%@*}"
+  AUTH_B64=$(printf '%s' "$CREDS" | base64 | tr -d '\n')
+  GIT_AUTH_ARGS=(-c "http.https://${GIT_HOST_PUBLIC}/.extraheader=AUTHORIZATION: basic ${AUTH_B64}")
 fi
 
+git_scrub_stderr() {
+  "$@" 2> >(sed -r 's/gh[pso]_[A-Za-z0-9]{20,}/[REDACTED]/g; s/([Bb]asic )[A-Za-z0-9+\/=]{8,}/\1[REDACTED]/g' >&2)
+}
+
 rm -rf "$WORK_DIR"
+echo "cloning https://${GIT_HOST_PUBLIC}${GIT_PATH}"
 if [[ -n "$BRANCH" ]]; then
-  echo "cloning https://***@${GIT_HOST_PUBLIC}${GIT_PATH} (branch: $BRANCH)"
-  git clone --branch "$BRANCH" --depth 1 "$SOURCE_URL" "$WORK_DIR"
+  git_scrub_stderr git "${GIT_AUTH_ARGS[@]}" clone --branch "$BRANCH" --depth 1 "https://${GIT_HOST_PUBLIC}${GIT_PATH}" "$WORK_DIR"
 else
-  echo "cloning https://***@${GIT_HOST_PUBLIC}${GIT_PATH}"
-  git clone --depth 1 "$SOURCE_URL" "$WORK_DIR"
+  git_scrub_stderr git "${GIT_AUTH_ARGS[@]}" clone --depth 1 "https://${GIT_HOST_PUBLIC}${GIT_PATH}" "$WORK_DIR"
 fi
 
 # Scrub credentials from origin remote — PAT must not persist to .git/config.
